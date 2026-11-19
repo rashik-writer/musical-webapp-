@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Music Class Enrollment & Fee Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+<style>
+  :root { --ink:#16213e; --paper:#fafaf8; --line:#dcdde3; --accent:#e4572e; --ok:#2e7d5b; --warn:#b7791f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Bricolage Grotesque', system-ui, sans-serif; background:var(--paper); color:var(--ink); line-height:1.5; }
+  header { background:var(--ink); color:#fff; padding:24px 20px 0; }
+  header h1 { margin:0 0 4px; font-size:1.7rem; font-weight:800; letter-spacing:-.02em; }
+  header p { margin:0 0 18px; opacity:.75; }
+  .keys { display:flex; height:48px; margin:0 -20px; overflow:hidden; cursor:pointer; user-select:none; }
+  .key { flex:1 0 34px; background:#fff; border-right:1px solid #9aa; position:relative; transition:transform .12s, background .12s; }
+  .key i { position:absolute; top:0; right:-9px; width:18px; height:30px; background:var(--ink); border:1px solid #fff; border-radius:0 0 3px 3px; z-index:2; transition:height .12s, background .12s; }
+  .key.down { background:#e3e4ee; transform:translateY(2px); }
+  .key i.down { height:25px; background:#3b4a7a; }
+  main { max-width:960px; margin:0 auto; padding:20px; }
+  nav { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
+  nav button { font:inherit; font-weight:600; padding:8px 16px; border:1px solid var(--line); background:#fff; border-radius:6px; cursor:pointer; color:var(--ink); transition:background .2s, color .2s, transform .1s; }
+  nav button:active, .go:active { transform:scale(.96); }
+  nav button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:24px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .stat b { display:block; font-size:1.6rem; font-weight:800; }
+  .stat span { font-size:.85rem; opacity:.7; }
+  h2 { font-size:1.15rem; margin:0 0 12px; }
+  h3 { font-size:1rem; margin:24px 0 10px; }
+  form { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:20px; transition:border-color .2s, box-shadow .2s; }
+  form.editing { border-color:var(--accent); box-shadow:0 0 0 3px rgba(228,87,46,.15); }
+  label { display:flex; flex-direction:column; font-size:.82rem; font-weight:600; gap:4px; flex:1 1 150px; }
+  input, select { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); }
+  input:disabled, select:disabled { background:#f0f1f5; }
+  input:focus, select:focus, button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .go { font:inherit; font-weight:600; padding:9px 18px; background:var(--accent); color:#fff; border:0; border-radius:6px; cursor:pointer; transition:transform .1s; }
+  .ghost { font:inherit; font-weight:600; padding:9px 14px; background:none; color:var(--ink); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); font-size:.92rem; }
+  th, td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--line); }
+  th { background:#f0f1f5; font-weight:600; }
+  .wrap { overflow-x:auto; border-radius:8px; }
+  .tag { padding:2px 8px; border-radius:10px; font-size:.78rem; font-weight:600; background:#e8eaf5; }
+  .Paid { background:#dff3e8; color:var(--ok); } .Partial { background:#fdf1d6; color:var(--warn); } .Unpaid { background:#fde4de; color:var(--accent); }
+  .empty { padding:18px; text-align:center; opacity:.65; }
+  .msg { min-height:1.4em; margin:0 0 4px; font-weight:600; }
+  .msg.err { color:var(--accent); } .msg.ok { color:var(--ok); }
+  .sql { margin:0 0 14px; font-size:.8rem; opacity:.7; min-height:1.2em; word-break:break-word; }
+  .sql code { background:#eceef5; padding:1px 6px; border-radius:4px; }
+  .link, .del { background:none; border:0; font:inherit; font-weight:600; cursor:pointer; padding:0 6px 0 0; }
+  .link { color:var(--ink); text-decoration:underline; } .del { color:var(--accent); }
+  [hidden] { display:none !important; }
+  .panel.in { animation:rise .35s ease; }
+  tr.flash td { animation:flash 1.3s ease; }
+  @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  @keyframes flash { from { background:#ffe3d9; } to { background:transparent; } }
+  @media (prefers-reduced-motion: reduce) {
+    .panel.in, tr.flash td { animation:none; }
+    .key, .key i, nav button, .go { transition:none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Music Class Enrollment &amp; Fee Management</h1>
+  <p>Add, edit and track classes, students, enrollments and fees. Press a piano key to play it.</p>
+  <div class="keys" id="keys" aria-hidden="true"></div>
+</header>
+
+<main>
+  <div class="stats">
+    <div class="stat"><b id="st-students">0</b><span>Students</span></div>
+    <div class="stat"><b id="st-classes">0</b><span>Classes</span></div>
+    <div class="stat"><b id="st-collected">₹0</b><span>Fees collected</span></div>
+    <div class="stat"><b id="st-pending">₹0</b><span>Fees pending</span></div>
+  </div>
+  <nav id="tabs">
+    <button data-tab="classes" class="on">Classes</button>
+    <button data-tab="students">Students</button>
+    <button data-tab="enroll">Enrollments</button>
+    <button data-tab="fees">Fees</button>
+  </nav>
+  <p class="msg" id="msg" role="status">Loading database…</p>
+  <p class="sql" id="sql"></p>
+
+  <!-- Classes -->
+  <section id="classes" class="panel in">
+    <h2>Class details</h2>
+    <form id="classForm" data-label="Add class">
+      <label>Class name<input name="name" required placeholder="Beginner Guitar"></label>
+      <label>Instrument<input name="instrument" required placeholder="Guitar"></label>
+      <label>Teacher<input name="teacher" required placeholder="Mr. Arun"></label>
+      <label>Type
+        <select name="type"><option value="group">Group</option><option value="private">Private (1-on-1)</option></select>
+      </label>
+      <label>Base fee / month (₹)<input name="baseFee" type="number" min="1" required placeholder="1000"></label>
+      <button class="go">Add class</button>
+      <button type="button" class="ghost" hidden>Cancel</button>
+    </form>
+    <div class="wrap"><table id="classTable"></table></div>
+  </section>
+
+  <!-- Students -->
+  <section id="students" class="panel" hidden>
+    <h2>Student details</h2>
+    <form id="studentForm" data-label="Add student">
+      <label>Name<input name="name" required placeholder="Student name"></label>
+      <label>Phone<input name="phone" required pattern="[0-9]{10}" title="10 digit phone number" placeholder="9876543210"></label>
+      <button class="go">Add student</button>
+      <button type="button" class="ghost" hidden>Cancel</button>
+    </form>
+    <div class="wrap"><table id="studentTable"></table></div>
+  </section>
+
+  <!-- Enrollments -->
+  <section id="enroll" class="panel" hidden>
+    <h2>Enroll a student</h2>
+    <form id="enrollForm" data-label="Enroll">
+      <label>Student<select name="studentId" id="enStudent" required></select></label>
+      <label>Class<select name="classId" id="enClass" required></select></label>
+      <label>Months<input name="months" type="number" min="1" max="24" value="3" required></label>
+      <button class="go">Enroll</button>
+      <button type="button" class="ghost" hidden>Cancel</button>
+    </form>
+    <div class="wrap"><table id="enrollTable"></table></div>
+  </section>
+
+  <!-- Fees -->
+  <section id="fees" class="panel" hidden>
+    <h2>Record a payment</h2>
+    <form id="payForm" data-label="Record payment">
+      <label>Enrollment<select name="enrollmentId" id="payEnroll" required></select></label>
+      <label>Amount (₹)<input name="amount" type="number" min="1" required></label>
+      <button class="go">Record payment</button>
+    </form>
+    <div class="wrap"><table id="feeTable"></table></div>
+    <h3>Payment history</h3>
+    <div class="wrap"><table id="payTable"></table></div>
+  </section>
+</main>
+
+<script>
+/* ============================================================
+   OOP MODEL
+   - Encapsulation : private fields (#) with getters
+   - Inheritance   : Student extends Person; GroupClass / PrivateClass extend MusicClass
+   - Polymorphism  : getMonthlyFee() / getType() overridden in subclasses
+   - Abstraction   : SchoolManager hides all SQL and business rules from the UI
+   ============================================================ */
+
+class Person {
+  #name; #phone;
+  constructor(name, phone) { this.#name = name; this.#phone = phone; }
+  get name()  { return this.#name; }
+  get phone() { return this.#phone; }
+}
+
+class Student extends Person {
+  #id;
+  constructor(id, name, phone) { super(name, phone); this.#id = id; }
+  get id() { return this.#id; }
+}
+
+class MusicClass {
+  #id; #baseFee;
+  constructor(id, name, instrument, teacher, baseFee) {
+    this.#id = id; this.name = name; this.instrument = instrument;
+    this.teacher = teacher; this.#baseFee = baseFee;
+  }
+  get id() { return this.#id; }
+  get baseFee() { return this.#baseFee; }
+  getMonthlyFee() { return this.#baseFee; }
+  getType() { return 'group'; }
+}
+
+class GroupClass extends MusicClass {
+  getMonthlyFee() { return this.baseFee; }                     // normal fee
+  getType() { return 'group'; }
+}
+
+class PrivateClass extends MusicClass {
+  getMonthlyFee() { return Math.round(this.baseFee * 1.5); }   // 50% extra for 1-on-1
+  getType() { return 'private'; }
+}
+
+function makeClass(r) {                                        // table row -> object
+  const Cls = r.type === 'private' ? PrivateClass : GroupClass;
+  return new Cls(r.id, r.name, r.instrument, r.teacher, r.base_fee);
+}
+
+class Enrollment {
+  #id; #payments;
+  constructor(id, student, musicClass, months, payments) {
+    this.#id = id; this.student = student; this.musicClass = musicClass;
+    this.months = months; this.#payments = payments;
+  }
+  get id() { return this.#id; }
+  get payments() { return [...this.#payments]; }
+  getTotal() { return this.musicClass.getMonthlyFee() * this.months; }
+  getPaid()  { return this.#payments.reduce((sum, p) => sum + p.amount, 0); }
+  getDue()   { return this.getTotal() - this.getPaid(); }
+  getStatus() {
+    if (this.getDue() <= 0) return 'Paid';
+    return this.getPaid() === 0 ? 'Unpaid' : 'Partial';
+  }
+  validatePayment(amount) {
+    if (!(amount > 0)) throw new Error('Amount must be more than 0.');
+    if (amount > this.getDue()) throw new Error('Amount is more than the due ' + rupee(this.getDue()) + '.');
+  }
+}
+
+/* ============================================================
+   SQL LAYER  (SQLite running in the browser through sql.js)
+   The database file is saved in localStorage so data stays after refresh.
+   ============================================================ */
+const SQL_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/';
+const STORAGE_KEY = 'musicSchoolSQLite';
+
+const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS students (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name  TEXT NOT NULL,
+    phone TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS classes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    instrument TEXT NOT NULL,
+    teacher    TEXT NOT NULL,
+    type       TEXT NOT NULL CHECK (type IN ('group','private')),
+    base_fee   INTEGER NOT NULL CHECK (base_fee > 0)
+  );
+  CREATE TABLE IF NOT EXISTS enrollments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
+    class_id   INTEGER NOT NULL REFERENCES classes(id)  ON DELETE RESTRICT,
+    months     INTEGER NOT NULL CHECK (months BETWEEN 1 AND 24),
+    UNIQUE (student_id, class_id)
+  );
+  CREATE TABLE IF NOT EXISTS payments (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    enrollment_id INTEGER NOT NULL REFERENCES enrollments(id) ON DELETE CASCADE,
+    amount        INTEGER NOT NULL CHECK (amount > 0),
+    paid_on       TEXT NOT NULL
+  );`;
+
+class Database {
+  constructor(SQL) {
+    let saved = null;
+    try {
+      const b64 = localStorage.getItem(STORAGE_KEY);
+      if (b64) saved = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    } catch (e) { saved = null; }
+    this.isNew = !saved;
+    this.db = saved ? new SQL.Database(saved) : new SQL.Database();
+    this.db.run('PRAGMA foreign_keys = ON');
+    this.db.run(SCHEMA);
+    this.lastSQL = '';
+  }
+  all(sql, params = []) {                       // SELECT -> array of objects
+    const st = this.db.prepare(sql); st.bind(params);
+    const rows = []; while (st.step()) rows.push(st.getAsObject());
+    st.free(); return rows;
+  }
+  run(sql, params = []) { this.lastSQL = sql.replace(/\s+/g, ' ').trim(); this.db.run(sql, params); }
+  lastId() { return this.all('SELECT last_insert_rowid() AS id')[0].id; }
+  save() {
+    try {
+      const data = this.db.export();
+      let bin = '';
+      for (let i = 0; i < data.length; i += 8192) bin += String.fromCharCode.apply(null, data.subarray(i, i + 8192));
+      localStorage.setItem(STORAGE_KEY, btoa(bin));
+    } catch (e) { /* storage full or blocked: data lasts for this session only */ }
+    this.db.run('PRAGMA foreign_keys = ON');    // export() resets this setting
+  }
+}
+
+class SchoolManager {
+  constructor(database) { this.d = database; this.refresh(); }
+
+  // Reload every object from the tables
+  refresh() {
+    this.students = this.d.all('SELECT * FROM students ORDER BY id').map(r => new Student(r.id, r.name, r.phone));
+    this.classes = this.d.all('SELECT * FROM classes ORDER BY id').map(makeClass);
+    const pays = this.d.all('SELECT * FROM payments ORDER BY id');
+    this.enrollments = this.d.all('SELECT * FROM enrollments ORDER BY id').map(r => new Enrollment(
+      r.id,
+      this.students.find(s => s.id === r.student_id),
+      this.classes.find(c => c.id === r.class_id),
+      r.months,
+      pays.filter(p => p.enrollment_id === r.id).map(p => ({ id: p.id, amount: p.amount, date: p.paid_on }))));
+  }
+
+  // Run changes as one SQL transaction; undo everything if anything fails
+  tx(fn) {
+    this.d.db.run('BEGIN');
+    try {
+      const result = fn();
+      this.refresh();
+      if (this.enrollments.some(e => e.getDue() < 0))
+        throw new Error('That change would make a total fee smaller than what is already paid.');
+      this.d.db.run('COMMIT');
+      this.d.save();
+      return result;
+    } catch (err) {
+      try { this.d.db.run('ROLLBACK'); } catch (e) {}
+      this.refresh();
+      const m = String(err.message);
+      if (m.includes('UNIQUE')) throw new Error('This student is already enrolled in that class.');
+      if (m.includes('FOREIGN KEY')) throw new Error('Remove the related enrollments first.');
+      throw err;
+    }
+  }
+
+  addStudent(name, phone) {
+    return this.tx(() => { this.d.run('INSERT INTO students (name, phone) VALUES (?, ?)', [name, phone]); return this.d.lastId(); });
+  }
+  updateStudent(id, name, phone) {
+    return this.tx(() => { this.d.run('UPDATE students SET name = ?, phone = ? WHERE id = ?', [name, phone, id]); return id; });
+  }
+  deleteStudent(id) {
+    return this.tx(() => { this.d.run('DELETE FROM students WHERE id = ?', [id]); return id; });
+  }
+
+  addClass(type, name, instrument, teacher, baseFee) {
+    return this.tx(() => {
+      this.d.run('INSERT INTO classes (name, instrument, teacher, type, base_fee) VALUES (?, ?, ?, ?, ?)',
+        [name, instrument, teacher, type, baseFee]);
+      return this.d.lastId();
+    });
+  }
+  updateClass(id, type, name, instrument, teacher, baseFee) {
+    return this.tx(() => {
+      this.d.run('UPDATE classes SET name = ?, instrument = ?, teacher = ?, type = ?, base_fee = ? WHERE id = ?',
+        [name, instrument, teacher, type, baseFee, id]);
+      return id;
+    });
+  }
+  deleteClass(id) {
+    return this.tx(() => { this.d.run('DELETE FROM classes WHERE id = ?', [id]); return id; });
+  }
+
+  enroll(studentId, classId, months) {
+    return this.tx(() => {
+      this.d.run('INSERT INTO enrollments (student_id, class_id, months) VALUES (?, ?, ?)', [studentId, classId, months]);
+      return this.d.lastId();
+    });
+  }
+  updateEnrollment(id, months) {
+    return this.tx(() => { this.d.run('UPDATE enrollments SET months = ? WHERE id = ?', [months, id]); return id; });
+  }
+  deleteEnrollment(id) {
+    return this.tx(() => { this.d.run('DELETE FROM enrollments WHERE id = ?', [id]); return id; });   // payments are deleted too (CASCADE)
+  }
+
+  recordPayment(enrollmentId, amount) {
+    this.enrollments.find(e => e.id === enrollmentId).validatePayment(amount);
+    return this.tx(() => {
+      this.d.run("INSERT INTO payments (enrollment_id, amount, paid_on) VALUES (?, ?, date('now'))", [enrollmentId, amount]);
+      return enrollmentId;
+    });
+  }
+  deletePayment(id) {
+    return this.tx(() => { this.d.run('DELETE FROM payments WHERE id = ?', [id]); return id; });
+  }
+
+  stats() {
+    const r = this.d.all(`SELECT (SELECT COUNT(*) FROM students) AS students,
+                                 (SELECT COUNT(*) FROM classes)  AS classes,
+                                 (SELECT IFNULL(SUM(amount), 0) FROM payments) AS collected`)[0];
+    r.pending = this.enrollments.reduce((sum, e) => sum + e.getDue(), 0);
+    return r;
+  }
+
+  seed() {
+    this.addClass('group', 'Beginner Guitar', 'Guitar', 'Mr. Arun', 1000);
+    this.addClass('private', 'Carnatic Vocals', 'Vocal', 'Ms. Lakshmi', 1200);
+    this.addStudent('Priya', '9876543210');
+    const e = this.enroll(1, 1, 3);
+    this.recordPayment(e, 1000);
+  }
+}
+
+/* ============================================================
+   UI (talks only to SchoolManager)
+   ============================================================ */
+let school;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rupee = n => '₹' + Number(n).toLocaleString('en-IN');
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let flashKey = null;
+const editing = { classes: null, students: null, enroll: null };
+
+function say(text, isError, keep) {
+  const m = $('msg'); m.textContent = text; m.className = 'msg ' + (isError ? 'err' : 'ok');
+  clearTimeout(say.t);
+  if (!keep) say.t = setTimeout(() => { m.textContent = ''; }, 4000);
+}
+function table(el, head, rows) {
+  el.innerHTML = rows.length
+    ? '<thead><tr>' + head.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody>'
+    : '<tbody><tr><td class="empty">Nothing here yet. Use the form above to add one.</td></tr></tbody>';
+}
+
+const shown = {};
+function countUp(id, to, fmt) {
+  const el = $(id), from = shown[id] || 0; shown[id] = to;
+  if (reduced || from === to) { el.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  (function step(t) {
+    const p = Math.min(1, (t - t0) / 450);
+    el.textContent = fmt(Math.round(from + (to - from) * p));
+    if (p < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+function render() {
+  const st = school.stats();
+  countUp('st-students', st.students, String); countUp('st-classes', st.classes, String);
+  countUp('st-collected', st.collected, rupee); countUp('st-pending', st.pending, rupee);
+
+  const actions = (kind, id) =>
+    `<button class="link" data-edit-${kind}="${id}">Edit</button><button class="del" data-del-${kind}="${id}">Remove</button>`;
+
+  table($('classTable'), ['Class', 'Instrument', 'Teacher', 'Type', 'Fee / month', ''],
+    school.classes.map(c => `<tr data-k="classes-${c.id}"><td>${esc(c.name)}</td><td>${esc(c.instrument)}</td><td>${esc(c.teacher)}</td>
+      <td><span class="tag">${c.getType()}</span></td><td>${rupee(c.getMonthlyFee())}</td><td>${actions('class', c.id)}</td></tr>`));
+
+  table($('studentTable'), ['ID', 'Name', 'Phone', ''],
+    school.students.map(s => `<tr data-k="students-${s.id}"><td>${s.id}</td><td>${esc(s.name)}</td><td>${esc(s.phone)}</td>
+      <td>${actions('student', s.id)}</td></tr>`));
+
+  $('enStudent').innerHTML = school.students.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  $('enClass').innerHTML = school.classes.map(c =>
+    `<option value="${c.id}">${esc(c.name)} (${rupee(c.getMonthlyFee())}/month)</option>`).join('');
+  if (editing.enroll !== null) {
+    const e = school.enrollments.find(x => x.id === editing.enroll);
+    if (e) { $('enStudent').value = e.student.id; $('enClass').value = e.musicClass.id; }
+  }
+
+  table($('enrollTable'), ['Student', 'Class', 'Months', 'Total fee', ''],
+    school.enrollments.map(e => `<tr data-k="enroll-${e.id}"><td>${esc(e.student.name)}</td><td>${esc(e.musicClass.name)}</td>
+      <td>${e.months}</td><td>${rupee(e.getTotal())}</td><td>${actions('enroll', e.id)}</td></tr>`));
+
+  $('payEnroll').innerHTML = school.enrollments.filter(e => e.getDue() > 0).map(e =>
+    `<option value="${e.id}">${esc(e.student.name)} – ${esc(e.musicClass.name)} (due ${rupee(e.getDue())})</option>`).join('');
+
+  table($('feeTable'), ['Student', 'Class', 'Total', 'Paid', 'Due', 'Status'],
+    school.enrollments.map(e => `<tr data-k="fees-${e.id}"><td>${esc(e.student.name)}</td><td>${esc(e.musicClass.name)}</td>
+      <td>${rupee(e.getTotal())}</td><td>${rupee(e.getPaid())}</td><td>${rupee(e.getDue())}</td>
+      <td><span class="tag ${e.getStatus()}">${e.getStatus()}</span></td></tr>`));
+
+  const history = [];
+  school.enrollments.forEach(e => e.payments.forEach(p => history.push({ e, p })));
+  history.sort((a, b) => b.p.id - a.p.id);
+  table($('payTable'), ['Student', 'Class', 'Amount', 'Date', ''],
+    history.map(({ e, p }) => `<tr><td>${esc(e.student.name)}</td><td>${esc(e.musicClass.name)}</td>
+      <td>${rupee(p.amount)}</td><td>${esc(p.date)}</td><td><button class="del" data-del-pay="${p.id}">Delete</button></td></tr>`));
+
+  $('sql').innerHTML = school.d.lastSQL ? 'Last SQL: <code>' + esc(school.d.lastSQL) + '</code>' : '';
+
+  if (flashKey) {
+    document.querySelectorAll(`[data-k="${flashKey}"]`).forEach(el => el.classList.add('flash'));
+    flashKey = null;
+  }
+}
+
+// run an action, re-render, show a message and flash the changed row
+function act(fn, okText, keyPrefix) {
+  try {
+    const id = fn();
+    if (keyPrefix) flashKey = keyPrefix + '-' + id;
+    render(); say(okText, false); return true;
+  } catch (err) { say(err.message, true); return false; }
+}
+
+/* ---------- edit mode ---------- */
+const formOf = { classes: 'classForm', students: 'studentForm', enroll: 'enrollForm' };
+function setMode(kind, id) {
+  const f = $(formOf[kind]); editing[kind] = id;
+  f.classList.toggle('editing', id !== null);
+  f.querySelector('.go').textContent = id !== null ? 'Save changes' : f.dataset.label;
+  f.querySelector('.ghost').hidden = id === null;
+  if (kind === 'enroll') { $('enStudent').disabled = $('enClass').disabled = id !== null; }
+  if (id === null) { f.reset(); }
+}
+function startEdit(kind, id) {
+  setMode(kind, id);
+  const f = $(formOf[kind]);
+  if (kind === 'classes') {
+    const c = school.classes.find(x => x.id === id);
+    f.name.value = c.name; f.instrument.value = c.instrument; f.teacher.value = c.teacher;
+    f.type.value = c.getType(); f.baseFee.value = c.baseFee;
+  } else if (kind === 'students') {
+    const s = school.students.find(x => x.id === id);
+    f.name.value = s.name; f.phone.value = s.phone;
+  } else {
+    const e = school.enrollments.find(x => x.id === id);
+    $('enStudent').value = e.student.id; $('enClass').value = e.musicClass.id; f.months.value = e.months;
+  }
+  f.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+  f.querySelector('input:not(:disabled), select:not(:disabled)').focus();
+}
+
+const v = (f, k) => f.elements[k].value.trim();
+
+$('classForm').addEventListener('submit', e => {
+  e.preventDefault(); const f = e.target, id = editing.classes;
+  const args = [v(f,'type'), v(f,'name'), v(f,'instrument'), v(f,'teacher'), Number(v(f,'baseFee'))];
+  const ok = id === null ? act(() => school.addClass(...args), 'Class added.', 'classes')
+                         : act(() => school.updateClass(id, ...args), 'Class updated.', 'classes');
+  if (ok) setMode('classes', null);
+});
+$('studentForm').addEventListener('submit', e => {
+  e.preventDefault(); const f = e.target, id = editing.students;
+  const ok = id === null ? act(() => school.addStudent(v(f,'name'), v(f,'phone')), 'Student added.', 'students')
+                         : act(() => school.updateStudent(id, v(f,'name'), v(f,'phone')), 'Student updated.', 'students');
+  if (ok) setMode('students', null);
+});
+$('enrollForm').addEventListener('submit', e => {
+  e.preventDefault(); const f = e.target, id = editing.enroll, months = Number(v(f,'months'));
+  if (id === null) { act(() => school.enroll(Number($('enStudent').value), Number($('enClass').value), months), 'Student enrolled.', 'enroll'); }
+  else if (act(() => school.updateEnrollment(id, months), 'Enrollment updated.', 'enroll')) setMode('enroll', null);
+});
+$('payForm').addEventListener('submit', e => {
+  e.preventDefault(); const f = e.target;
+  if (act(() => school.recordPayment(Number(v(f,'enrollmentId')), Number(v(f,'amount'))), 'Payment recorded.', 'fees')) f.reset();
+});
+document.querySelectorAll('.ghost').forEach(b => b.addEventListener('click', () => {
+  const kind = Object.keys(formOf).find(k => formOf[k] === b.closest('form').id);
+  setMode(kind, null);
+}));
+
+document.addEventListener('click', e => {
+  const d = e.target.dataset;
+  if (d.editClass)   startEdit('classes', Number(d.editClass));
+  if (d.editStudent) startEdit('students', Number(d.editStudent));
+  if (d.editEnroll)  startEdit('enroll', Number(d.editEnroll));
+  if (d.delClass   && confirm('Remove this class?'))   act(() => school.deleteClass(Number(d.delClass)), 'Class removed.');
+  if (d.delStudent && confirm('Remove this student?')) act(() => school.deleteStudent(Number(d.delStudent)), 'Student removed.');
+  if (d.delEnroll  && confirm('Remove this enrollment and its payments?')) act(() => school.deleteEnrollment(Number(d.delEnroll)), 'Enrollment removed.');
+  if (d.delPay     && confirm('Delete this payment?')) act(() => school.deletePayment(Number(d.delPay)), 'Payment deleted.');
+});
+
+/* ---------- tabs ---------- */
+$('tabs').addEventListener('click', e => {
+  const tab = e.target.dataset.tab; if (!tab) return;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b === e.target));
+  ['classes', 'students', 'enroll', 'fees'].forEach(id => {
+    const p = $(id); p.hidden = id !== tab;
+    p.classList.remove('in');
+    if (id === tab) { void p.offsetWidth; p.classList.add('in'); }
+  });
+});
+
+/* ---------- piano keys ---------- */
+const STEPS = [0, 2, 4, 5, 7, 9, 11];
+$('keys').innerHTML = Array.from({ length: 28 }, (_, i) => {
+  const n = STEPS[i % 7] + 12 * Math.floor(i / 7);
+  return `<div class="key" data-n="${n}">${[0,1,3,4,5].includes(i % 7) ? `<i data-n="${n + 1}"></i>` : ''}</div>`;
+}).join('');
+let audio;
+function tone(n) {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
+    o.type = 'triangle'; o.frequency.value = 130.81 * Math.pow(2, n / 12);
+    g.gain.setValueAtTime(0.2, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+    o.connect(g); g.connect(audio.destination); o.start(t); o.stop(t + 0.7);
+  } catch (e) {}
+}
+$('keys').addEventListener('pointerdown', e => {
+  const el = e.target.closest('[data-n]'); if (!el) return;
+  tone(Number(el.dataset.n)); el.classList.add('down');
+  setTimeout(() => el.classList.remove('down'), 160);
+});
+
+/* ---------- start ---------- */
+initSqlJs({ locateFile: f => SQL_CDN + f }).then(SQL => {
+  const database = new Database(SQL);
+  school = new SchoolManager(database);
+  if (database.isNew) school.seed();
+  render(); say('', false);
+}).catch(() => say('Could not load the SQL engine. Check your internet connection and refresh the page.', true, true));
+</script>
+</body>
+</html>
